@@ -1,0 +1,13 @@
+# Core system & process monitoring (defender, workload, scheduler runner)
+psutil>=5.9.0
+
+# Linux kernel inotify interface (defender - installed on Linux/WSL2)
+inotify-simple>=1.3.5; sys_platform == "linux"
+
+# Data aggregation & plotting (Member D - tables & figures)
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+
+# Automated testing
+pytest>=7.4.0
