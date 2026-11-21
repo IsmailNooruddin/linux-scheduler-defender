@@ -53,8 +53,14 @@ RAW_TRIALS_CSV: Path = RAW_RESULTS_DIR / "trials.csv"
 # rather than /mnt/c/ (Windows NTFS). Native ext4 ensures accurate inotify kernel
 # events, realistic Linux disk I/O speed, and zero interference with OneDrive.
 
-# Top-level isolated directory for all decoy files and per-trial telemetry
-SANDBOX_ROOT: Path = Path("/tmp/os_defense_sandbox")
+# Top-level isolated directory for all decoy files and per-trial telemetry.
+# On Linux/WSL2 (`os.name == "posix"`), this is strictly `/tmp/os_defense_sandbox`.
+# On Windows (`os.name == "nt"`), it falls back to the OS temp directory so unit tests can also run locally.
+SANDBOX_ROOT: Path = (
+    Path("/tmp/os_defense_sandbox")
+    if os.name != "nt"
+    else Path(tempfile.gettempdir()) / "os_defense_sandbox"
+)
 
 # Directory containing the dummy decoy files watched by Member B's defender
 # and targeted by Member A's XOR ransomware simulator
