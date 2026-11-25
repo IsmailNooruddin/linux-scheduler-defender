@@ -27,6 +27,7 @@ linux-scheduler-defender/
 ├── requirements.txt                 # Shared Python dependencies
 ├── pytest.ini                       # Pytest path configuration
 ├── .gitignore                       # Git ignore rules
+├── .gitattributes                   # Keeps shell scripts on LF line endings (needed on WSL2)
 │
 ├── config/                          # [Member A — Ismail Nooruddin] Shared team contract
 │   ├── __init__.py
@@ -68,7 +69,8 @@ linux-scheduler-defender/
 ├── tests/                           # Automated module verification tests
 │   ├── test_attacker.py             # [Member A — Ismail Nooruddin] Safety, XOR, benign & SIGSTOP tests
 │   ├── test_defender.py             # [Member B — Hassaan Ul Qadir] Burst detection & false-alarm tests
-│   └── test_workload.py             # [Member C — Munir Tariq] CPU load & throughput tests
+│   ├── test_workload.py             # [Member C — Munir Tariq] CPU load & throughput tests
+│   └── test_scheduler.py            # [Member C — Munir Tariq] Scheduler profile & trial runner tests
 │
 ├── results/                         # [Member D — Rayyan Alvi] Experiment outputs
 │   ├── raw/                         # Per-trial raw CSV logs (results/raw/trials.csv)
@@ -158,6 +160,65 @@ All shared constants and file paths are imported from `config/experiment_config.
 - **Raw Trial Output Schema (for Member C & Member D):**
   - Path: `RAW_TRIALS_CSV` (`results/raw/trials.csv`)
   - Columns: `RAW_CSV_COLUMNS` (`setup`, `trial_id`, `mode`, `detected`, `false_alarm`, `detection_delay_ms`, `files_damaged`, `total_decoy_files`, `workload_throughput`, `timed_out`, `notes`)
+
+### 3. Workload, Scheduler Profiles & Trial Runner (Member C - Completed)
+
+**One-time WSL2 requirement: cgroup v2 with the `cpu` controller.** Check with `scripts/check_env.sh`. If it reports that
+`/sys/fs/cgroup` is not `cgroup2fs`, add this to `%UserProfile%\.wslconfig` on Windows, run `wsl --shutdown` in PowerShell, and reopen Ubuntu:
+
+```ini
+[wsl2]
+kernelCommandLine = cgroup_no_v1=all
+```
+
+```bash
+# 0. Check the environment (WSL2 kernel, cgroup v2, nice/chrt/taskset, sudo, RT safety, Python packages)
+scripts/check_env.sh
+
+# 1. Unit tests for workload, profiles and runner (root-only checks are skipped without sudo)
+pytest -v tests/test_workload.py tests/test_scheduler.py
+
+# 2. Try the pieces by hand
+python -m src.workload.cpu_stress --duration 3          # one busy worker per core, prints work units/sec
+python -m src.scheduler.profiles --list                 # what every setup does to defender and workload
+python -m src.scheduler.profiles --check chrt           # can this setup run on this machine right now?
+python -m src.scheduler.runner --dry-run                # print the shuffled trial schedule, run nothing
+
+# 3. Smoke test (about 2 minutes), then the full benchmark (about 15-20 minutes, writes results/raw/trials.csv)
+scripts/run_all_experiments.sh --quick
+scripts/run_all_experiments.sh
+```
+
+`run_all_experiments.sh` runs the environment check, creates the cgroups, runs the runner as root via `sudo` (it asks for your password once and keeps the
+virtual environment), always removes the cgroups at the end (even on Ctrl+C), and then calls Member D's `summarize` and `plot_results`.
+Extra options go to the runner, for example `--trials 5 --setups default chrt`, `--benign-trials 3`, `--seed 7`, `--no-analysis`.
+
+**How one trial works:** reset sandbox, start the CPU workload under the setup's control, start the defender under its control and wait for
+`DEFENDER_READY_FLAG`, launch the attacker (or `benign_activity`), wait until it is frozen / finished / timed out, keep the workload running for at
+least 3 s so throughput is measured over the same window everywhere, stop everything, count damaged files, append one row to `trials.csv`.
+
+**Design decisions:**
+- Controls are applied between `fork()` and `exec()`, so the defender is already under its control when it starts and every workload worker inherits
+  nice value, policy, affinity and cgroup membership. `verify_profile()` reads the real state back from the kernel and a trial whose control did not take effect is retried, never recorded.
+- Trials run in shuffled rounds (one trial of every setup per round, seeded with `--seed`), so slow drift such as laptop heat spreads evenly over all setups.
+- Real-time safety: the runner refuses `chrt` if kernel RT throttling is off, every trial has a 15 s deadline, and `chrt` trials also get a SCHED_FIFO-99 watchdog that SIGKILLs the defender.
+- A harness failure (defender crashes, never gets ready, control not applied) is retried and finally aborts the run. It is never written as a "defender missed the attack" row.
+
+**What the runner expects from the defender (Member B):**
+- Started as `python -m src.defender.defender` with no arguments (override with `--defender-cmd`), run from the repository root.
+- Creates `DEFENDER_READY_FLAG` once its inotify watch is active, and keeps running until it freezes the attacker or receives `SIGTERM` (then exits with code 0).
+- Writes `DEFENDER_TELEMETRY_PATH` (JSON) with `detection_time_ns`, `freeze_time_ns`, `frozen_pid`, `events_seen`, `triggered`, using `time.monotonic_ns()` (same clock as the attacker's `attack_start_ns`).
+- `detection_delay_ms = (freeze_time_ns - attack_start_ns) / 1e6`. If `frozen_pid` is not the attacker's PID the attack counts as undetected and the stray process is resumed with `SIGCONT`.
+
+**`results/raw/trials.csv` for Member D:** one row per trial in the column order of `RAW_CSV_COLUMNS`. Empty cells mean "not applicable" (pandas reads them as NaN).
+
+| `mode` | Setups | Use it for |
+| :--- | :--- | :--- |
+| `attack` | `baseline_no_load`, `default`, `nice`, `chrt`, `cgroup_weight`, `cgroup_max`, `taskset` | detection delay, files damaged, detection rate, workload throughput under that setup |
+| `benign` | same as above | false-alarm rate (`false_alarm` column) |
+| `solo` | `baseline_workload_solo` | baseline throughput: `slowdown % = (baseline - setup) / baseline * 100` |
+
+Setups that cannot run on the current machine (for example `taskset` with one visible core) are skipped with a `[SKIP]` message and exit code 2.
 
 ---
 
