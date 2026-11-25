@@ -414,6 +414,7 @@ def _wait_for_outcome(
     Returns `"frozen"`, `"finished"` or `"timeout"`. Raises TrialInfrastructureError if the
     defender died without having frozen anything (a broken defender is not an experimental result).
     """
+    defender_exit_checked = False
     while True:
         if _is_stopped(actor.pid):
             return "frozen"
@@ -421,7 +422,8 @@ def _wait_for_outcome(
             return "finished"
         if time.monotonic() > deadline:
             return "timeout"
-        if defender is not None and defender.poll() is not None:
+        if defender is not None and defender.poll() is not None and not defender_exit_checked:
+            defender_exit_checked = True
             time.sleep(0.2)  # a defender that exits right after freezing is fine; give the state time to settle
             if _is_stopped(actor.pid):
                 return "frozen"
@@ -547,33 +549,49 @@ def _run_trial_once(setup: str, trial_id: int, mode: str, defender_cmd: List[str
         row["files_damaged"] = damage["damaged_files"]
         row["total_decoy_files"] = damage["total_files"]
 
-        triggered = bool(defender_tel.get("triggered")) or outcome == "frozen"
+        defender_triggered = bool(defender_tel.get("triggered"))
+        actor_frozen = outcome == "frozen"
         frozen_pid = defender_tel.get("frozen_pid")
+        wrong_target = False
         if frozen_pid is not None and int(frozen_pid) != actor.pid:
+            wrong_target = True
             notes.append(f"defender froze PID {frozen_pid}, expected {actor.pid}")
             _undo_wrong_freeze(int(frozen_pid), procs)
-            triggered = outcome == "frozen"  # only count it if our process really was stopped
-        if outcome == "frozen" and not defender_tel.get("triggered"):
+        if actor_frozen and not defender_triggered:
             notes.append("actor frozen but defender telemetry missing")
 
         if mode == MODE_ATTACK:
-            row["detected"] = triggered
+            # Count an attack as detected only if our attacker process was actually frozen
+            # (a burst with no frozen target or a wrong-PID freeze did not stop the attack).
+            actually_frozen = actor_frozen or (
+                not wrong_target and frozen_pid is not None and int(frozen_pid) == actor.pid
+            )
+            row["detected"] = actually_frozen
             attack_start_ns = actor_tel.get("attack_start_ns")
             freeze_ns = defender_tel.get("freeze_time_ns")
-            if triggered and attack_start_ns is not None and freeze_ns is not None:
+            if actually_frozen and attack_start_ns is not None and freeze_ns is not None:
                 row["detection_delay_ms"] = round((int(freeze_ns) - int(attack_start_ns)) / 1e6, 3)
                 if row["detection_delay_ms"] < 0:
                     notes.append("negative detection delay (clock mismatch?)")
-            elif triggered:
+            elif actually_frozen:
                 notes.append("detected but timestamps missing")
-            if not triggered:
+            elif defender_triggered and frozen_pid is None:
+                notes.append(
+                    f"burst declared but attacker not frozen ({defender_tel.get('status', 'burst_no_target')})"
+                )
+            elif not wrong_target:
                 notes.append(f"attack {actor_tel.get('status', 'unknown')} after "
                              f"{actor_tel.get('files_scrambled', '?')} files, undetected")
         else:  # benign
-            row["detected"] = triggered
-            row["false_alarm"] = triggered
-            if triggered:
-                notes.append("FALSE ALARM: defender froze the benign process")
+            # Any burst trigger or freeze during benign activity counts as a false alarm.
+            false_alarm = defender_triggered or actor_frozen
+            row["detected"] = false_alarm
+            row["false_alarm"] = false_alarm
+            if false_alarm:
+                if actor_frozen or (frozen_pid is not None and int(frozen_pid) == actor.pid):
+                    notes.append("FALSE ALARM: defender froze the benign process")
+                else:
+                    notes.append("FALSE ALARM: defender triggered burst during benign activity")
 
         if notes_cfg and mode == MODE_ATTACK and trial_id == 1:
             notes.append("cfg " + ", ".join(f"{k}={v}" for k, v in notes_cfg.items()))

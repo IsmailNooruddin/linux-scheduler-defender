@@ -29,11 +29,13 @@ cd "${REPO_ROOT}" || exit 1
 
 RUN_ANALYSIS=1
 RUN_ENV_CHECK=1
+IS_DRY_RUN=0
 RUNNER_ARGS=()
 for arg in "$@"; do
     case "${arg}" in
         --no-analysis)    RUN_ANALYSIS=0 ;;
         --skip-env-check) RUN_ENV_CHECK=0 ;;
+        --dry-run)        IS_DRY_RUN=1; RUNNER_ARGS+=("${arg}") ;;
         *)                RUNNER_ARGS+=("${arg}") ;;
     esac
 done
@@ -44,6 +46,11 @@ if [ -n "${VIRTUAL_ENV:-}" ]; then
 else
     PYTHON_BIN="$(command -v python3)"
     echo "WARNING: no virtual environment active; using ${PYTHON_BIN}" >&2
+fi
+
+# Dry run prints the planned schedule without needing sudo, cgroups, --fresh archiving, or analysis.
+if [ "${IS_DRY_RUN}" -eq 1 ]; then
+    exec "${PYTHON_BIN}" -m src.scheduler.runner "${RUNNER_ARGS[@]}"
 fi
 
 if [ "$(id -u)" -eq 0 ]; then

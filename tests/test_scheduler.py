@@ -40,7 +40,7 @@ from src.scheduler.profiles import ProfileError
 
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Scheduler tests need Linux (run them in WSL2).")
 
-MULTI_CPU = len(os.sched_getaffinity(0)) >= 2
+MULTI_CPU = hasattr(os, "sched_getaffinity") and len(os.sched_getaffinity(0)) >= 2
 
 
 def _spawn_sleeper(seconds: int = 30, setup: str = "default", role: str = "defender") -> subprocess.Popen:
@@ -338,7 +338,7 @@ STAND_IN_DEFENDER = textwrap.dedent(
         stop = True
     signal.signal(signal.SIGTERM, _term)
 
-    MODE = sys.argv[1]  # "guard" = detect bursts, "lazy" = never reacts, "crash" = dies at start
+    MODE = sys.argv[1]  # "guard" = detect bursts, "lazy" = never reacts, "crash" = dies at start, "no_target" = triggers without freezing
     if MODE == "crash":
         sys.exit(3)
     inotify = INotify()
@@ -347,13 +347,18 @@ STAND_IN_DEFENDER = textwrap.dedent(
     window, events = [], 0
     while not stop:
         for ev in inotify.read(timeout=DEFENDER_POLL_TIMEOUT_MS):
-            if MODE != "guard" or not ev.name.startswith(DECOY_FILE_PREFIX):
+            if MODE not in ("guard", "no_target") or not ev.name.startswith(DECOY_FILE_PREFIX):
                 continue
             events += 1
             now = time.monotonic_ns()
             window = [(t, n) for t, n in window + [(now, ev.name)] if now - t <= BURST_WINDOW_MS * 1e6]
             if len({{n for _, n in window}}) >= BURST_EVENT_THRESHOLD:
                 detection = time.monotonic_ns()
+                if MODE == "no_target":
+                    DEFENDER_TELEMETRY_PATH.write_text(json.dumps(dict(
+                        detection_time_ns=detection, freeze_time_ns=None, frozen_pid=None,
+                        events_seen=events, triggered=True, status="burst_no_target")))
+                    sys.exit(0)
                 pid = json.loads(ATTACKER_TELEMETRY_PATH.read_text())["pid"]
                 os.kill(pid, signal.SIGSTOP)
                 freeze = time.monotonic_ns()
@@ -408,10 +413,8 @@ def test_undetected_attack_is_recorded_as_data_not_as_an_error(stand_in) -> None
 
 
 @needs_inotify
-def test_benign_trial_with_guard_has_no_false_alarm(stand_in, monkeypatch: pytest.MonkeyPatch) -> None:
-    from src.attacker import benign_activity
-
-    monkeypatch.setattr(benign_activity, "BENIGN_DURATION_S", 1.5)
+def test_benign_trial_with_guard_has_no_false_alarm(stand_in) -> None:
+    # Note: benign_activity runs in a child subprocess using BENIGN_DURATION_S from config.
     row = runner.run_trial("default", 1, "benign", stand_in("guard"))
     assert row["false_alarm"] is False and row["detected"] is False
     assert row["files_damaged"] == 0
@@ -422,6 +425,14 @@ def test_solo_trial_measures_only_workload_throughput(stand_in) -> None:
     row = runner.run_trial("baseline_workload_solo", 1, "solo", stand_in("guard"))
     assert row["workload_throughput"] > 0
     assert row["detection_delay_ms"] is None and row["files_damaged"] is None and row["detected"] is False
+
+
+@needs_inotify
+def test_burst_without_frozen_target_is_not_counted_as_detected(stand_in) -> None:
+    row = runner.run_trial("default", 1, "attack", stand_in("no_target"))
+    assert row["detected"] is False and row["detection_delay_ms"] is None
+    assert row["files_damaged"] == 300
+    assert "burst_no_target" in row["notes"]
 
 
 @needs_inotify

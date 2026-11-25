@@ -25,13 +25,15 @@ So after a burst we look at the kernel's process table in `/proc`:
       For every process, list `/proc/<pid>/fd/*` (symlinks to the files that
       process has open). Any process that currently has a file inside
       `<sandbox_root>/files/` open is a suspect. The attacker opens each decoy
-      file only for microseconds, so we re-scan in a tight loop for a short
-      budget (`PID_SCAN_TIMEOUT_S`, 20 ms) hoping to catch it with a file open.
+      file only for microseconds between 2 ms sleeps, so we keep the scan budget
+      very short (`PID_SCAN_TIMEOUT_S`, 3 ms) to avoid adding bimodal retry noise
+      to detection latency.
 
   Fallback method ("cmdline_fallback"):
-      If the fd scan finds nothing in time, match `/proc/<pid>/cmdline`
-      against known attacker signatures (like a signature-based AV rule).
-      The method actually used is recorded in telemetry as `pid_method`.
+      If the quick fd scan misses the microsecond open window, match
+      `/proc/<pid>/cmdline` against known attacker signatures (like a
+      signature-based AV rule). The method actually used is recorded in
+      telemetry as `pid_method`.
 
   Never targeted: this defender's own PID, its parent PID, PID 1, and any
   PID passed via `--whitelist-pid`.
@@ -93,11 +95,9 @@ from src.defender.monitor import BurstResult, SandboxMonitor
 
 # How long (seconds) to keep re-scanning /proc for the attacker's open file
 # descriptors after a burst is declared, before using the fallback.
-# Kept SHORT on purpose: the attacker only holds a decoy file open for a few
-# microseconds between sleeps, so a hit usually happens on the first scans or
-# not at all. Every extra millisecond spent here is more files damaged, so we
-# fall back to the command-line signature quickly.
-PID_SCAN_TIMEOUT_S: float = 0.02
+# Kept very short (3 ms, ~1-2 fast /proc passes) so a missed microsecond file-open
+# window never injects a 20+ ms random coin-flip spike into detection_delay_ms.
+PID_SCAN_TIMEOUT_S: float = 0.003
 
 # Substrings searched for in /proc/<pid>/cmdline by the fallback method.
 CMDLINE_SIGNATURES: Tuple[str, ...] = ("ransomware_sim",)

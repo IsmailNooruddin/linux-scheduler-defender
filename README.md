@@ -42,16 +42,16 @@ linux-scheduler-defender/
 │   │   ├── ransomware_sim.py        # Safe XOR file-scrambling simulator with atomic telemetry
 │   │   └── benign_activity.py       # Harmless normal file writer for false-alarm testing
 │   │
-│   ├── defender/                    # [Member B — Hassaan Ul Qadir]
+│   ├── defender/                    # [Member B — Hassaan Ul Qadir] (Completed)
 │   │   ├── __init__.py
 │   │   ├── monitor.py               # inotify file-event watcher and sliding-window burst detector
 │   │   └── defender.py              # Identifies attacker PID on burst and freezes via SIGSTOP
 │   │
-│   ├── workload/                    # [Member C — Munir Tariq]
+│   ├── workload/                    # [Member C — Munir Tariq] (Completed)
 │   │   ├── __init__.py
 │   │   └── cpu_stress.py            # Synthetic multi-process CPU load (1 worker per core)
 │   │
-│   ├── scheduler/                   # [Member C — Munir Tariq]
+│   ├── scheduler/                   # [Member C — Munir Tariq] (Completed)
 │   │   ├── __init__.py
 │   │   ├── profiles.py              # Linux scheduler wrappers (default, nice, chrt, cgroup v2, taskset)
 │   │   └── runner.py                # Automated single-trial and 20-trial batch orchestrator
@@ -61,7 +61,7 @@ linux-scheduler-defender/
 │       ├── summarize.py             # Aggregates raw trial CSVs into statistical summary tables
 │       └── plot_results.py          # Generates comparative figures for report and slides
 │
-├── scripts/                         # [Member C — Munir Tariq] WSL2/Linux helper shell scripts
+├── scripts/                         # [Member C — Munir Tariq] (Completed) WSL2/Linux helper shell scripts
 │   ├── check_env.sh                 # Verifies WSL2 kernel, cgroup v2, chrt/taskset/nice, Python deps
 │   ├── setup_cgroups.sh             # Configures cgroup v2 directories and enables +cpu controller
 │   └── run_all_experiments.sh       # One-command full benchmark suite runner
@@ -88,7 +88,7 @@ linux-scheduler-defender/
 | :--- | :--- | :--- |
 | **Member A** | **Ismail Nooruddin** | Shared configuration contract, isolated decoy sandbox & SHA-256 damage verifier, safe XOR ransomware simulator, benign normal-activity generator, and attacker test suite (`config/`, `src/attacker/`, `tests/test_attacker.py`). |
 | **Member B** | **Hassaan Ul Qadir** | Lightweight `inotify` folder monitor, sliding-window burst detector, PID lookup, and `SIGSTOP` containment (`src/defender/`, `tests/test_defender.py`). |
-| **Member C** | **Munir Tariq** | Synthetic CPU-heavy workload, Linux scheduler / `cgroup v2` profile wrappers, environment/cgroup scripts, and automated 20-trial experiment runner (`src/workload/`, `src/scheduler/`, `scripts/`, `tests/test_workload.py`). |
+| **Member C** | **Munir Tariq** | Synthetic CPU-heavy workload, Linux scheduler / `cgroup v2` profile wrappers, environment/cgroup scripts, and automated 20-trial experiment runner (`src/workload/`, `src/scheduler/`, `scripts/`, `tests/test_workload.py`, `tests/test_scheduler.py`). |
 | **Member D** | **Rayyan Alvi** | Raw CSV aggregation, statistical summaries, comparative graphs, and final documentation polish (`src/analysis/`, `results/`, `README.md`). |
 | **All Members** | **Entire Team** | Experimental analysis, final report, presentation slides, and viva preparation. |
 
@@ -141,27 +141,19 @@ Run the automated test suite (8 tests covering safety locks, manifest hashing, X
 pytest -v tests/test_attacker.py
 ```
 
-### 2. Integration Contract for Members B, C, and D
+### 2. Lightweight Real-Time Defender (Member B — Completed)
 
-All shared constants and file paths are imported from `config/experiment_config.py`:
+The defender watches `/tmp/os_defense_sandbox/files` via Linux `inotify` (`inotify_simple`), counts **distinct** modified files inside a `500 ms` sliding window (`BURST_EVENT_THRESHOLD = 5`), discovers the offending process through `/proc/<pid>/fd` (with a fast `/proc/<pid>/cmdline` fallback), and freezes it immediately with `SIGSTOP`. Protected PIDs (`0`, `1`, self, parent, and `--whitelist-pid`) are never signalled.
 
-- **Watched Directory (for Member B's `inotify` monitor):**
-  - `SANDBOX_FILES_DIR` (`/tmp/os_defense_sandbox/files`)
-  - Burst thresholds: `BURST_EVENT_THRESHOLD = 5` files within `BURST_WINDOW_MS = 500` ms
-  - Ready handshake flag: `DEFENDER_READY_FLAG` (`/tmp/os_defense_sandbox/telemetry/defender_ready.flag`)
-- **Per-Trial Telemetry Files (written to `/tmp/os_defense_sandbox/telemetry/`):**
-  - `ATTACKER_TELEMETRY_PATH` (`attacker_telemetry.json`): contains `pid`, `attack_start_ns` (flushed atomically *before* File #1 is scrambled so it survives `SIGSTOP`), `first_file_ns`, `files_scrambled`, `status`.
-  - `BENIGN_TELEMETRY_PATH` (`benign_telemetry.json`): contains `pid`, `start_ns`, `files_written`, `status`.
-  - `DEFENDER_TELEMETRY_PATH` (`defender_telemetry.json`): Member B writes `detection_time_ns`, `freeze_time_ns`, `frozen_pid`, `triggered`.
-  - `WORKLOAD_TELEMETRY_PATH` (`workload_telemetry.json`): Member C writes `work_units_completed`, `elapsed_s`, `work_units_per_sec`.
-- **Ground-Truth Damage Function (for Member C's `runner.py`):**
-  - Call `from src.attacker.sandbox_setup import reset_sandbox, count_damaged_files, cleanup_sandbox`
-  - `count_damaged_files()["damaged_files"]` returns the exact integer count of scrambled/missing decoy files.
-- **Raw Trial Output Schema (for Member C & Member D):**
-  - Path: `RAW_TRIALS_CSV` (`results/raw/trials.csv`)
-  - Columns: `RAW_CSV_COLUMNS` (`setup`, `trial_id`, `mode`, `detected`, `false_alarm`, `detection_delay_ms`, `files_damaged`, `total_decoy_files`, `workload_throughput`, `timed_out`, `notes`)
+```bash
+# Run unit tests (BurstDetector logic, /proc fd scan, protected PIDs) + live WSL2 attack & benign integration tests
+pytest -v tests/test_defender.py
 
-### 3. Workload, Scheduler Profiles & Trial Runner (Member C - Completed)
+# Run the defender standalone (after `sandbox_setup --reset`)
+python -m src.defender.defender --max-runtime 15 --json
+```
+
+### 3. Workload, Scheduler Profiles & Trial Runner (Member C — Completed)
 
 **One-time WSL2 requirement: cgroup v2 with the `cpu` controller.** Check with `scripts/check_env.sh`. If it reports that
 `/sys/fs/cgroup` is not `cgroup2fs`, add this to `%UserProfile%\.wslconfig` on Windows, run `wsl --shutdown` in PowerShell, and reopen Ubuntu:
@@ -219,6 +211,19 @@ least 3 s so throughput is measured over the same window everywhere, stop everyt
 | `solo` | `baseline_workload_solo` | baseline throughput: `slowdown % = (baseline - setup) / baseline * 100` |
 
 Setups that cannot run on the current machine (for example `taskset` with one visible core) are skipped with a `[SKIP]` message and exit code 2.
+
+### 4. Shared Telemetry & Integration Contract
+
+All modules import shared constants and paths from `config/experiment_config.py`:
+
+- **Watched Directory:** `SANDBOX_FILES_DIR` (`/tmp/os_defense_sandbox/files`), burst rule `BURST_EVENT_THRESHOLD = 5` distinct files within `BURST_WINDOW_MS = 500` ms, readiness flag `DEFENDER_READY_FLAG`.
+- **Per-Trial Telemetry (`/tmp/os_defense_sandbox/telemetry/`):**
+  - `attacker_telemetry.json`: `pid`, `attack_start_ns` (flushed atomically before File #1 so it survives `SIGSTOP`), `first_file_ns`, `files_scrambled`, `status`.
+  - `benign_telemetry.json`: `pid`, `start_ns`, `files_written`, `status`.
+  - `defender_telemetry.json`: `detection_time_ns`, `freeze_time_ns`, `frozen_pid`, `events_seen`, `triggered`, `pid_method`, `status`.
+  - `workload_telemetry.json`: `work_units_completed`, `elapsed_s`, `work_units_per_sec`.
+- **Ground-Truth Damage Function:** `count_damaged_files()["damaged_files"]` from `src/attacker/sandbox_setup.py`.
+- **Raw Output CSV:** `results/raw/trials.csv` with exact column order `RAW_CSV_COLUMNS` (`setup`, `trial_id`, `mode`, `detected`, `false_alarm`, `detection_delay_ms`, `files_damaged`, `total_decoy_files`, `workload_throughput`, `timed_out`, `notes`).
 
 ---
 
