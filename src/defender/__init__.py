@@ -1,5 +1,5 @@
 """
-Defender Package — To be implemented by Member B (Hassaan Ul Qadir).
+Defender Package (Member B — Hassaan Ul Qadir).
 
 Modules in this package:
   - monitor.py  : inotify file-event watcher and sliding-window burst detector

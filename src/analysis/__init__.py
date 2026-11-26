@@ -1,5 +1,5 @@
 """
-Analysis & Plotting Package — To be implemented by Member D (Rayyan Alvi).
+Analysis & Plotting Package (Member D — Rayyan Alvi).
 
 Modules in this package:
   - summarize.py    : Aggregates `results/raw/trials.csv` into summary statistics tables

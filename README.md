@@ -257,6 +257,13 @@ Summary of `195` raw trials (`20` attack trials and `5` benign trials per defend
 | cgroup v2 (cpu.max 50%) | 20 | 20/20 (100.0%) | 17.11 | 15.05 | 3.88 | 24.92 | 6.20 / 6.0 / 0.70 | 315.2 / 316.5 | +39.25% | +39.59% | 5 | 0/5 (0.0%) |
 | CPU Pinning (taskset) | 20 | 20/20 (100.0%) | 24.29 | 25.67 | 4.09 | 29.08 | 6.40 / 7.0 / 1.35 | 494.8 / 498.5 | +4.64% | +4.85% | 5 | 0/5 (0.0%) |
 
+### Key Findings (Hypotheses H1–H3)
+
+- **H1 (Priority controls reduce latency & damage):** Raising defender priority via `nice` (`-20` vs `+19`), `cgroup_weight` (`1000` vs `100`), or `chrt` (`SCHED_FIFO 50`) cut mean detection delay from `29.46 ms` (`default`) down to `20.89–25.34 ms` and reduced mean files damaged (`6.25–6.50` vs `7.10`), while imposing minimal steady-state workload slowdown (`+1.31%` to `+2.10%` median).
+- **H2 (Bandwidth capping protects fastest, at a steep throughput cost):** `cgroup_max` (`50%` CPU cap) achieved the lowest loaded detection delay (`17.11 ms` mean, `15.05 ms` median) and lowest loaded file damage (`6.20` files), but cut competing workload throughput by `+39.59%` (median).
+- **H3 (Core pinning alone helps less than priority or caps):** `taskset` (`24.29 ms` mean, `+4.85%` median slowdown) improved on `default` (`29.46 ms`), yet trailed `cgroup_max`, `nice`, and `cgroup_weight` in responsiveness while sacrificing one dedicated core's capacity.
+- **Reliability:** Across all `195` trials, the defender achieved `100%` attack detection (`140/140`), `0%` false alarms (`0/35` benign trials), and `0` timeouts.
+
 ### Methodology & Data-Cleaning Treatment
 
 - **Standard deviation:** Sample standard deviation (`ddof=1`, Bessel's correction); 95th percentile (`P95`) uses linear interpolation (`numpy.percentile(..., 95)`).

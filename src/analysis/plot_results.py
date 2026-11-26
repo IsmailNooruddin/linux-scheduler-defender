@@ -137,6 +137,10 @@ def _load_raw_attacks(raw_csv: Optional[Path]) -> Optional[pd.DataFrame]:
     if "mode" not in raw.columns or "setup" not in raw.columns:
         return None
     attacks = raw[raw["mode"].astype(str).str.strip().str.lower() == "attack"].copy()
+    if "detected" in attacks.columns:
+        attacks["detected_bool"] = (
+            attacks["detected"].astype(str).str.strip().str.lower() == "true"
+        )
     for col in ("detection_delay_ms", "files_damaged", "workload_throughput"):
         if col in attacks.columns:
             attacks[col] = pd.to_numeric(attacks[col], errors="coerce")
@@ -166,16 +170,23 @@ def plot_detection_delay(
     fig, ax = plt.subplots(figsize=(10.5, 5.8))
     positions = np.arange(1, len(setups) + 1)
 
+    detected_attacks = raw_attacks
+    if raw_attacks is not None and "detected_bool" in raw_attacks.columns:
+        detected_attacks = raw_attacks[raw_attacks["detected_bool"]]
+
     has_raw = (
-        raw_attacks is not None
-        and "detection_delay_ms" in raw_attacks.columns
-        and any(raw_attacks.loc[raw_attacks["setup"] == s, "detection_delay_ms"].dropna().shape[0] > 0 for s in setups)
+        detected_attacks is not None
+        and "detection_delay_ms" in detected_attacks.columns
+        and any(
+            detected_attacks.loc[detected_attacks["setup"] == s, "detection_delay_ms"].dropna().shape[0] > 0
+            for s in setups
+        )
     )
 
-    if has_raw and raw_attacks is not None:
+    if has_raw and detected_attacks is not None:
         rng = np.random.default_rng(42)
         series_list = [
-            raw_attacks.loc[raw_attacks["setup"] == s, "detection_delay_ms"].dropna().to_numpy(dtype=float)
+            detected_attacks.loc[detected_attacks["setup"] == s, "detection_delay_ms"].dropna().to_numpy(dtype=float)
             for s in setups
         ]
         bp = ax.boxplot(

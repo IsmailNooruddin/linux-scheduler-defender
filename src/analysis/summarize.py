@@ -601,8 +601,44 @@ def render_summary_markdown(
     )
 
     if round_diag.get("available"):
+        round_stats = round_diag.get("round_stats", [])
+        max_round = max((int(r["round"]) for r in round_stats), default=1)
+        round_range_label = f"rounds 2–{max_round}" if max_round >= 2 else "all rounds"
+
+        loaded = summary_df[
+            (summary_df["setup"] != "baseline_workload_solo")
+            & summary_df["workload_slowdown_median_pct"].notna()
+        ]
+        neg_mean_setups = [
+            f"`{row['setup']}`"
+            for _, row in loaded.iterrows()
+            if pd.notna(row["workload_slowdown_mean_pct"])
+            and float(row["workload_slowdown_mean_pct"]) < 0
+        ]
+        med_vals = loaded["workload_slowdown_median_pct"].dropna().to_numpy(dtype=float)
+        if len(med_vals) > 0:
+            med_range_text = f"`{med_vals.min():+.2f}%` to `{med_vals.max():+.2f}%`"
+        else:
+            med_range_text = "`N/A`"
+
+        if len(neg_mean_setups) > 2:
+            neg_list_text = ", ".join(neg_mean_setups[:-1]) + f", and {neg_mean_setups[-1]}"
+        elif len(neg_mean_setups) == 2:
+            neg_list_text = f"{neg_mean_setups[0]} and {neg_mean_setups[1]}"
+        elif len(neg_mean_setups) == 1:
+            neg_list_text = neg_mean_setups[0]
+        else:
+            neg_list_text = ""
+
+        if len(neg_mean_setups) > 1:
+            neg_clause = f" (yielding negative values on {neg_list_text})"
+        elif len(neg_mean_setups) == 1:
+            neg_clause = f" (yielding a negative value on {neg_list_text})"
+        else:
+            neg_clause = ""
+
         lines.append(
-            f"- **Steady-state unconstrained throughput median (rounds 2–20):** "
+            f"- **Steady-state unconstrained throughput median ({round_range_label}):** "
             f"`{round_diag['steady_median']:.1f} units/s` (transient spike threshold `> 1.15x` median = `{round_diag['spike_threshold']:.1f} units/s`)."
         )
         lines.append(
@@ -613,14 +649,25 @@ def render_summary_markdown(
             lines.append(
                 "- **Spikes after Round 1:** " + "; ".join(round_diag["later_spike_details"]) + "."
             )
-        lines.append(
-            "- **Treatment decision:** Because elevated throughput readings occur in both Round 1 and later rounds "
-            "(consistent with intermittent host CPU turbo-boost / frequency scaling rather than a purely Round-1 warm-up artifact), "
-            "**no rounds are silently discarded**. All valid trials are retained, and **both mean-based and median-based slowdown (%)** "
-            "are reported: mean slowdown honestly reflects the turbo-boost outliers (yielding negative values on `default`, `nice`, and `chrt`), "
-            "while median slowdown provides a spike-resistant comparison (`+1.31%` to `+39.59%`). "
-            "Reproducible sensitivity checks can be run via `python -m src.analysis.summarize --skip-warmup-rounds 1`."
-        )
+        if skip_warmup_rounds == 0:
+            lines.append(
+                "- **Treatment decision:** Because elevated throughput readings occur in Round 1 and/or later rounds "
+                "(consistent with intermittent host CPU turbo-boost / frequency scaling rather than a purely Round-1 warm-up artifact), "
+                "**no rounds are silently discarded**. All valid trials are retained, and **both mean-based and median-based slowdown (%)** "
+                f"are reported: mean slowdown honestly reflects any turbo-boost outliers{neg_clause}, "
+                f"while median slowdown provides a spike-resistant comparison ({med_range_text}). "
+                "Reproducible sensitivity checks can be run via `python -m src.analysis.summarize --skip-warmup-rounds 1`."
+            )
+        else:
+            lines.append(
+                f"- **Treatment decision:** Explicit warm-up exclusion applied via `--skip-warmup-rounds {skip_warmup_rounds}` "
+                f"(`trial_id <= {skip_warmup_rounds}` dropped). Across the remaining rounds, median-based slowdown spans {med_range_text}"
+                + (
+                    f", while negative mean slowdowns remain on {neg_list_text}."
+                    if neg_list_text
+                    else "."
+                )
+            )
     else:
         lines.append("- Round-level unconstrained throughput diagnostic was not applicable for this dataset.")
 

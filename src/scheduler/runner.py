@@ -678,14 +678,14 @@ def _raise_keyboard_interrupt(_signum: int, _frame: Any) -> None:
 
 
 def _restore_ownership(*paths: Path) -> None:
-    """When started with sudo, give result files back to the invoking user (not root)."""
+    """When started with sudo, give explicitly created result files back to the invoking user (not root)."""
     uid, gid = os.environ.get("SUDO_UID"), os.environ.get("SUDO_GID")
     if uid is None or gid is None or os.geteuid() != 0:
         return
     for path in paths:
         try:
-            targets = [path] + (list(path.rglob("*")) if path.is_dir() else [])
-            for target in targets:
+            target = Path(path)
+            if target.exists():
                 os.chown(target, int(uid), int(gid))
         except OSError:
             pass
@@ -746,7 +746,7 @@ def run_all(
             cleanup_sandbox()
         except Exception:  # noqa: BLE001 - cleanup must never mask the real error
             pass
-        _restore_ownership(output_csv.parent)
+        _restore_ownership(output_csv)
 
     if skipped:
         log(f"[RUNNER] finished, but {len(skipped)} setup(s) were skipped: {', '.join(skipped)}")
@@ -815,6 +815,7 @@ def main() -> int:
     if args.fresh:
         backup = archive_existing_csv(args.output)
         if backup:
+            _restore_ownership(backup)
             log(f"[RUNNER] previous results archived to {backup}")
 
     try:
