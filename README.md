@@ -56,7 +56,7 @@ linux-scheduler-defender/
 │   │   ├── profiles.py              # Linux scheduler wrappers (default, nice, chrt, cgroup v2, taskset)
 │   │   └── runner.py                # Automated single-trial and 20-trial batch orchestrator
 │   │
-│   └── analysis/                    # [Member D — Rayyan Alvi]
+│   └── analysis/                    # [Member D — Rayyan Alvi] (Completed)
 │       ├── __init__.py
 │       ├── summarize.py             # Aggregates raw trial CSVs into statistical summary tables
 │       └── plot_results.py          # Generates comparative figures for report and slides
@@ -212,7 +212,22 @@ least 3 s so throughput is measured over the same window everywhere, stop everyt
 
 Setups that cannot run on the current machine (for example `taskset` with one visible core) are skipped with a `[SKIP]` message and exit code 2.
 
-### 4. Shared Telemetry & Integration Contract
+### 4. Results Analysis & Plotting (Member D — Completed)
+
+Aggregate raw per-trial results (`results/raw/trials.csv`) into statistical summary tables and generate the four comparative figures:
+
+```bash
+# 1. Compute per-setup summary statistics (writes results/processed/summary_table.csv & .md)
+python -m src.analysis.summarize
+
+# 2. Generate all four comparative figures (writes results/figures/fig1..fig4.png)
+python -m src.analysis.plot_results
+
+# Optional: reproducible sensitivity check excluding initial round(s)
+python -m src.analysis.summarize --skip-warmup-rounds 1
+```
+
+### 5. Shared Telemetry & Integration Contract
 
 All modules import shared constants and paths from `config/experiment_config.py`:
 
@@ -229,4 +244,27 @@ All modules import shared constants and paths from `config/experiment_config.py`
 
 ## Results
 
-> *Summary tables and graphs will be added under `results/processed/` and `results/figures/` once the 20-trial benchmark suite across all scheduler setups is executed.*
+Summary of `195` raw trials (`20` attack trials and `5` benign trials per defender setup, plus `20` solo workload baseline trials) from `results/raw/trials.csv` (see also [summary_table.md](results/processed/summary_table.md) and [summary_table.csv](results/processed/summary_table.csv)):
+
+| Scheduler Setup | Attack Trials | Detected (%) | Delay Mean (ms) | Delay Median (ms) | Delay SD (ms) | Delay P95 (ms) | Files Damaged (Mean / Med / SD) | Throughput Mean / Med (units/s) | Slowdown Mean (%) | Slowdown Median (%) | Benign Trials | False Alarm (%) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Baseline (No Load) | 20 | 20/20 (100.0%) | 13.27 | 13.54 | 0.70 | 14.14 | 5.65 / 6.0 / 0.49 | — | — | — | 5 | 0/5 (0.0%) |
+| Baseline (Workload Solo) | 0 | — | — | — | — | — | — | 518.8 / 523.9 | +0.00% | +0.00% | 0 | — |
+| Default (CFS) | 20 | 20/20 (100.0%) | 29.46 | 28.87 | 7.66 | 39.52 | 7.10 / 7.0 / 1.62 | 539.4 / 515.5 | -3.97% | +1.61% | 5 | 0/5 (0.0%) |
+| Nice (-20 / +19) | 20 | 20/20 (100.0%) | 20.89 | 21.58 | 2.30 | 23.17 | 6.35 / 6.0 / 0.75 | 531.1 / 517.1 | -2.36% | +1.31% | 5 | 0/5 (0.0%) |
+| Real-Time (SCHED_FIFO 50) | 20 | 20/20 (100.0%) | 25.34 | 25.70 | 5.11 | 31.08 | 6.25 / 6.0 / 0.72 | 544.5 / 516.3 | -4.96% | +1.45% | 5 | 0/5 (0.0%) |
+| cgroup v2 (cpu.weight) | 20 | 20/20 (100.0%) | 22.68 | 22.15 | 2.88 | 28.97 | 6.50 / 7.0 / 0.89 | 506.5 / 512.9 | +2.37% | +2.10% | 5 | 0/5 (0.0%) |
+| cgroup v2 (cpu.max 50%) | 20 | 20/20 (100.0%) | 17.11 | 15.05 | 3.88 | 24.92 | 6.20 / 6.0 / 0.70 | 315.2 / 316.5 | +39.25% | +39.59% | 5 | 0/5 (0.0%) |
+| CPU Pinning (taskset) | 20 | 20/20 (100.0%) | 24.29 | 25.67 | 4.09 | 29.08 | 6.40 / 7.0 / 1.35 | 494.8 / 498.5 | +4.64% | +4.85% | 5 | 0/5 (0.0%) |
+
+### Methodology & Data-Cleaning Treatment
+
+- **Standard deviation:** Sample standard deviation (`ddof=1`, Bessel's correction); 95th percentile (`P95`) uses linear interpolation (`numpy.percentile(..., 95)`).
+- **Warm-up / throughput spike treatment:** Round-level inspection shows `9` transient high-throughput spikes (`> 1.15x` steady-state median of `515.9 units/s`) across unconstrained setups — `6` in Round 1 and `3` in later rounds (Round 2 `chrt` attack: `817.8`, Round 3 `default` benign: `638.8`, Round 6 `default` attack: `810.5`). Because these spikes persist beyond Round 1 (consistent with intermittent host CPU turbo-boost rather than a pure Round-1 warm-up artifact), **all `195` valid trials are retained without discarding data**. Both mean-based slowdown (which honestly reflects the negative values on `default`, `nice`, and `chrt` caused by turbo spikes) and median-based slowdown (which is spike-resistant, ranging from `+1.31%` to `+39.59%`) are reported.
+
+### Generated Figures
+
+- **Detection & Freeze Delay:** [fig1_detection_delay.png](results/figures/fig1_detection_delay.png)
+- **Decoy Files Damaged:** [fig2_files_damaged.png](results/figures/fig2_files_damaged.png)
+- **Workload Slowdown (%):** [fig3_workload_slowdown.png](results/figures/fig3_workload_slowdown.png)
+- **Protection vs. Workload Cost Trade-Off:** [fig4_tradeoff_scatter.png](results/figures/fig4_tradeoff_scatter.png)

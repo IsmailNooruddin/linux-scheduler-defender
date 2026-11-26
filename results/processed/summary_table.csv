@@ -1,0 +1,9 @@
+setup,attack_trials,detected_trials,detection_rate_pct,timed_out_trials,delay_mean_ms,delay_median_ms,delay_std_ms,delay_p95_ms,files_damaged_mean,files_damaged_median,files_damaged_std,workload_throughput_mean,workload_throughput_median,workload_throughput_std,workload_slowdown_mean_pct,workload_slowdown_median_pct,benign_trials,false_alarms,false_alarm_rate_pct
+baseline_no_load,20,20,100.0,0,13.2724,13.545,0.7048,14.1394,5.65,6.0,0.4894,,,,,,5,0,0.0
+baseline_workload_solo,0,0,,0,,,,,,,,518.8036,523.9452,19.4027,0.0,0.0,0,0,
+default,20,20,100.0,0,29.4573,28.869,7.6587,39.5247,7.1,7.0,1.619,539.4092,515.5266,96.2606,-3.9717,1.6068,5,0,0.0
+nice,20,20,100.0,0,20.8868,21.5835,2.2998,23.1674,6.35,6.0,0.7452,531.0608,517.0938,76.612,-2.3626,1.3077,5,0,0.0
+chrt,20,20,100.0,0,25.341,25.695,5.1133,31.0835,6.25,6.0,0.7164,544.5184,516.3296,98.4847,-4.9565,1.4535,5,0,0.0
+cgroup_weight,20,20,100.0,0,22.683,22.1465,2.876,28.9732,6.5,7.0,0.8885,506.5109,512.9208,31.6514,2.3694,2.1041,5,0,0.0
+cgroup_max,20,20,100.0,0,17.1139,15.054,3.8766,24.9173,6.2,6.0,0.6959,315.1794,316.5372,9.7424,39.2488,39.5858,5,0,0.0
+taskset,20,20,100.0,0,24.2921,25.6705,4.0902,29.0796,6.4,7.0,1.3534,494.7505,498.5235,17.992,4.6363,4.852,5,0,0.0
